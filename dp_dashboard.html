@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Census Under Noise: A Differential Privacy Census Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root{
+    --bg:#0B0F14; --panel:#121821; --panel2:#161D27; --border:#232C38;
+    --text:#E8EDF2; --muted:#7C8A99; --faint:#4C5A69;
+    --signal:#2FD9C4; --signal-dim:#164F49;
+    --noise:#F5A623; --noise-dim:#5C4013;
+    --danger:#FF6B6B; --danger-dim:#5C2222;
+    --mono:'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    --serif:'Fraunces', Georgia, serif;
+    --sans:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); padding:32px 20px 64px; line-height:1.5;
+  }
+  .wrap{max-width:920px; margin:0 auto;}
+  header{margin-bottom:28px;}
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--signal); margin:0 0 10px;
+  }
+  h1{
+    font-family:var(--serif); font-weight:600; font-size:32px; margin:0 0 8px; letter-spacing:-.01em;
+  }
+  .sub{color:var(--muted); font-size:14.5px; max-width:640px; margin:0;}
+  .sub b{color:var(--text); font-weight:500;}
+
+  .dial-panel{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:22px 24px; margin:24px 0 20px;
+  }
+  .dial-row{display:flex; align-items:flex-end; gap:28px; flex-wrap:wrap;}
+  .dial-col{flex:1 1 320px; min-width:280px;}
+  .dial-label{
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.1em;
+    color:var(--muted); margin-bottom:10px; display:flex; justify-content:space-between;
+  }
+  .dial-readout{font-family:var(--mono); font-size:20px; color:var(--text); font-weight:700;}
+  .regime{font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:20px; margin-left:8px;}
+  .regime.strong{background:var(--signal-dim); color:var(--signal);}
+  .regime.moderate{background:#4a4413; color:#F5D923;}
+  .regime.weak{background:var(--noise-dim); color:var(--noise);}
+  .regime.minimal{background:var(--danger-dim); color:var(--danger);}
+
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:6px; border-radius:4px; outline:none;
+    background:linear-gradient(90deg, var(--signal) 0%, var(--noise) 55%, var(--danger) 100%);
+    margin:6px 0 4px;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--text); border:3px solid var(--bg); box-shadow:0 0 0 1px var(--border); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:50%; background:var(--text);
+    border:3px solid var(--bg); box-shadow:0 0 0 1px var(--border); cursor:pointer;
+  }
+  .ticks{display:flex; justify-content:space-between; font-family:var(--mono); font-size:10px; color:var(--faint);}
+
+  .side-controls{display:flex; flex-direction:column; gap:10px; min-width:200px;}
+  .toggle-group{display:flex; background:var(--panel2); border:1px solid var(--border); border-radius:8px; overflow:hidden;}
+  .toggle-group button{
+    flex:1; background:transparent; border:none; color:var(--muted); font-family:var(--sans);
+    font-size:13px; padding:8px 6px; cursor:pointer; font-weight:500; transition:.15s;
+  }
+  .toggle-group button.active{background:var(--panel); color:var(--signal);}
+  .field-row{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);}
+  .field-row input[type=number]{
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    font-family:var(--mono); font-size:12.5px; padding:5px 8px; border-radius:6px; width:90px;
+  }
+  button.resample{
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    font-family:var(--sans); font-size:12.5px; padding:8px 10px; border-radius:8px; cursor:pointer;
+    font-weight:500; display:flex; align-items:center; gap:6px;
+  }
+  button.resample:hover{border-color:var(--signal); color:var(--signal);}
+
+  .tabs{display:flex; gap:4px; border-bottom:1px solid var(--border); margin:8px 0 24px;}
+  .tab{
+    font-family:var(--sans); font-size:14px; font-weight:500; color:var(--muted);
+    background:none; border:none; padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent;
+    margin-bottom:-1px;
+  }
+  .tab.active{color:var(--text); border-bottom-color:var(--signal);}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px 24px; margin-bottom:18px;}
+  .card h2{font-family:var(--serif); font-size:19px; font-weight:600; margin:0 0 4px;}
+  .card .desc{color:var(--muted); font-size:13px; margin:0 0 18px;}
+
+  select{
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    font-family:var(--sans); font-size:13.5px; padding:8px 10px; border-radius:8px; width:100%;
+  }
+
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px;}
+  .stat-box{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:14px 16px;}
+  .stat-box .k{font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px;}
+  .stat-box .v{font-family:var(--mono); font-size:24px; font-weight:700;}
+  .stat-box.true .v{color:var(--signal);}
+  .stat-box.noisy .v{color:var(--noise);}
+  .err-line{margin-top:14px; font-size:13px; color:var(--muted); font-family:var(--sans);}
+  .err-line b{font-family:var(--mono); color:var(--text);}
+
+  .legend{display:flex; gap:18px; font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .legend span{display:flex; align-items:center; gap:6px;}
+  .swatch{width:10px; height:10px; border-radius:2px;}
+
+  .axis path, .axis line{stroke:var(--border);}
+  .axis text{fill:var(--muted); font-family:var(--mono); font-size:10px;}
+  .gridline{stroke:var(--border); stroke-dasharray:2,3;}
+
+  .about{margin-top:28px;}
+  .about summary{
+    cursor:pointer; font-family:var(--mono); font-size:12px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.08em; padding:4px 0;
+  }
+  .about-body{font-size:13.5px; color:var(--muted); line-height:1.7; margin-top:14px;}
+  .about-body code{font-family:var(--mono); color:var(--signal); font-size:12.5px; background:var(--panel2); padding:1px 5px; border-radius:4px;}
+  .about-body .warn{color:var(--noise);}
+
+  .footnote{font-size:11.5px; color:var(--faint); margin-top:30px; font-family:var(--mono); text-align:center;}
+
+  .howto{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:20px 24px; margin:22px 0 0;
+  }
+  .howto h3{
+    font-family:var(--sans); font-size:13px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--signal); margin:0 0 14px;
+  }
+  .howto ol{margin:0; padding-left:20px; display:grid; gap:10px;}
+  .howto li{font-size:13.5px; color:var(--muted); line-height:1.6;}
+  .howto li b{color:var(--text); font-weight:500;}
+  .howto li code{font-family:var(--mono); font-size:12px; color:var(--noise); background:var(--panel2); padding:1px 5px; border-radius:4px;}
+  .tip{
+    display:flex; gap:8px; align-items:flex-start; margin-top:14px; padding:10px 12px;
+    background:var(--panel2); border-radius:8px; border-left:3px solid var(--noise);
+  }
+  .tip .icon{color:var(--noise); font-family:var(--mono); font-size:13px; flex-shrink:0;}
+  .tip p{margin:0; font-size:12.5px; color:var(--muted); line-height:1.6;}
+  .tip b{color:var(--text); font-weight:500;}
+  .hint-line{font-size:12px; color:var(--faint); margin-top:8px; font-style:italic;}
+  .tooltip{
+    position:absolute; background:var(--panel2); border:1px solid var(--border); border-radius:6px;
+    padding:6px 10px; font-family:var(--mono); font-size:11.5px; pointer-events:none; opacity:0; color:var(--text);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">A differential privacy census dashboard</p>
+    <h1>Census under noise</h1>
+    <p class="sub"><b>How much does privacy cost?</b> Real 1994 US census data, <b>45,222 records</b> after cleaning. Move the privacy dial and watch true statistics get obscured by calibrated noise, the mathematical price of protecting any one person's record.</p>
+  </header>
+
+  <div class="howto">
+    <h3>What you're looking at</h3>
+    <ol>
+      <li><b>Two numbers, one true, one fuzzed.</b> Every query below computes the real answer from 45,222 real people, then adds random mathematical noise before showing it to you. That's how differential privacy publishes statistics without exposing anyone's individual record.</li>
+      <li><b>The epsilon dial controls how much noise.</b> Drag it left for strong privacy (more noise, less accurate), right for weak privacy (less noise, more accurate). This is the core tradeoff the whole field is built around.</li>
+      <li><b>The noisy number changes every time on purpose.</b> Switching tabs, changing the query, or clicking <code>&#8635; Draw new noise sample</code> all draw a fresh random value. If it looked the same every time, it wouldn't be private.</li>
+      <li><b>"Expected average error" is different from "this draw."</b> One is a single random outcome; the other is what the math predicts you'd see on average across many draws. Only the epsilon, mechanism, or query changes the second one.</li>
+    </ol>
+    <div class="tip">
+      <span class="icon">&#9432;</span>
+      <p><b>Where the effect is easiest to see:</b> pick a smaller count like "high earners who are female" rather than the full dataset size, and drag epsilon all the way to the far left (0.01) then far right (10): small nudges near the middle barely move large numbers, since noise scales with sensitivity, not with how big the true value is.</p>
+    </div>
+  </div>
+
+  <div class="dial-panel">
+    <div class="dial-row">
+      <div class="dial-col">
+        <div class="dial-label">
+          <span>Privacy budget &epsilon; (epsilon)</span>
+          <span><span class="dial-readout" id="epsReadout">1.00</span><span class="regime" id="regimeTag">moderate</span></span>
+        </div>
+        <input type="range" id="epsSlider" min="-2" max="1" step="0.01" value="0">
+        <div class="ticks"><span>0.01, strong privacy</span><span>0.1</span><span>1</span><span>10, weak privacy</span></div>
+      </div>
+      <div class="side-controls">
+        <div class="dial-label" style="margin-bottom:2px;">Mechanism</div>
+        <div class="toggle-group">
+          <button id="btnLaplace" class="active">Laplace</button>
+          <button id="btnGaussian">Gaussian</button>
+        </div>
+        <div class="field-row" id="deltaRow" style="display:none;">
+          <span>&delta; =</span>
+          <input type="number" id="deltaInput" value="0.00001" step="0.00001">
+        </div>
+        <button class="resample" id="resampleBtn">&#8635; Draw new noise sample</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="explorer">Query explorer</button>
+    <button class="tab" data-tab="histogram">DP histogram</button>
+    <button class="tab" data-tab="tradeoff">Privacy&ndash;utility curve</button>
+  </div>
+
+  <div class="panel active" id="panel-explorer">
+    <div class="card">
+      <h2>Ask a statistical question</h2>
+      <p class="desc">Pick a query. We compute the true answer on the real dataset, then release it through the noisy mechanism above. Prefer a smaller-count query (like the female or White high-earner counts) if you want the noise to be visually obvious.</p>
+      <select id="queryPicker"></select>
+      <div class="stat-grid">
+        <div class="stat-box true"><div class="k">True answer</div><div class="v" id="trueVal">...</div></div>
+        <div class="stat-box noisy"><div class="k">DP-released answer (this draw)</div><div class="v" id="noisyVal">...</div></div>
+      </div>
+      <div class="err-line" id="errLine"></div>
+      <p class="hint-line">"This draw" is one random outcome and will change every time you resample. "Expected average error" only changes when you move epsilon, switch mechanism, or switch query.</p>
+    </div>
+    <div class="card">
+      <h2>Where repeated releases land</h2>
+      <p class="desc">200 independent noisy draws of the same query at the current &epsilon;. The spread of amber bars around the teal "true" line is exactly the price of privacy at this setting.</p>
+      <div id="dotplot"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-histogram">
+    <div class="card">
+      <h2>Release a full histogram</h2>
+      <p class="desc">Each bar gets independent noise. Because a person appears in exactly one bin, releasing the whole histogram still only costs &epsilon; total: this is <i>parallel composition</i>.</p>
+      <select id="histPicker">
+        <option value="age">Age distribution</option>
+        <option value="hours">Hours worked per week</option>
+      </select>
+      <div class="legend" style="margin-top:16px;">
+        <span><span class="swatch" style="background:var(--signal)"></span>True count</span>
+        <span><span class="swatch" style="background:var(--noise)"></span>DP-released count</span>
+      </div>
+      <div id="histchart"></div>
+      <p class="hint-line">Watch the smallest bars (e.g. ages 85&ndash;90, which has only 13 real people): noise is added equally to every bin, so tiny bins get thrown around proportionally far more than large ones.</p>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-tradeoff">
+    <div class="card">
+      <h2>Expected error vs. privacy budget</h2>
+      <p class="desc">The fundamental tradeoff: lower &epsilon; means stronger privacy but noisier answers. Line = analytic expectation, dots = 100-draw simulation at each &epsilon;. The marker shows your current dial position.</p>
+      <select id="tradeoffPicker"></select>
+      <div id="tradeoffchart"></div>
+      <p class="hint-line">Both axes are log-scaled: the tradeoff compounds multiplicatively, not by fixed amounts, so small drags near either end of the epsilon dial matter far more than they look like they should.</p>
+    </div>
+  </div>
+
+  <details class="about">
+    <summary>How the noise is actually computed &darr;</summary>
+    <div class="about-body">
+      <p><b style="color:var(--text)">Laplace mechanism.</b> For a query <code>f</code> with global sensitivity &Delta;<sub>f</sub> (the most one person's record can change the true answer), release <code>f(D) + Lap(&Delta;<sub>f</sub>/&epsilon;)</code>. Sampled here as <code>-b&middot;sign(u)&middot;ln(1-2|u|)</code> for <code>u ~ Uniform(-0.5, 0.5)</code> and scale <code>b = &Delta;<sub>f</sub>/&epsilon;</code>. This satisfies pure &epsilon;-differential privacy.</p>
+      <p><b style="color:var(--text)">Gaussian mechanism.</b> Release <code>f(D) + N(0, &sigma;&sup2;)</code> with <code>&sigma; = &Delta;<sub>f</sub>&middot;&radic;(2&middot;ln(1.25/&delta;)) / &epsilon;</code>, satisfying <span class="warn">(&epsilon;,&delta;)</span>-differential privacy: it leaks with probability &delta;, which is why &delta; should be far smaller than 1/n. This demo uses the standard analytic-Gaussian approximation, valid for &epsilon; &lt; 1; treat larger &epsilon; values here as illustrative only.</p>
+      <p><b style="color:var(--text)">Sensitivity per query type.</b> Counting queries (how many high earners, how many in bin X) have &Delta; = 1: adding or removing one person changes a count by at most one. Bounded mean queries (mean age, mean hours) use &Delta; = (max&minus;min)/n, treating the record count n as public.</p>
+      <p><b style="color:var(--text)">Composition caveat.</b> Every tab here treats its query as the <i>only</i> thing ever released from this dataset. A real system spends a finite total privacy budget across every query it will ever answer. Ask ten questions at &epsilon; = 1 each and you've spent &epsilon; = 10, not &epsilon; = 1. The histogram tab is the one exception: because each record lands in exactly one bin, <i>parallel composition</i> means noising every bin independently at scale 1/&epsilon; still only costs &epsilon; total, regardless of how many bins there are.</p>
+    </div>
+  </details>
+
+  <p class="footnote">Data: UCI Machine Learning Repository, Adult (Census Income) dataset, 1994 US Census Bureau extract &middot; n = 45,222 after removing missing values</p>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const DATA = {"n": 45222, "meanAge": 38.548, "minAge": 17, "maxAge": 90, "meanHours": 40.938, "minHours": 1, "maxHours": 99, "meanEducationNum": 10.118, "highEarnerCount": 11208, "lowEarnerCount": 34014, "ageHist": [{"label": "15-20", "lo": 15.0, "hi": 20.0, "count": 2052}, {"label": "20-25", "lo": 20.0, "hi": 25.0, "count": 5256}, {"label": "25-30", "lo": 25.0, "hi": 30.0, "count": 5737}, {"label": "30-35", "lo": 30.0, "hi": 35.0, "count": 6198}, {"label": "35-40", "lo": 35.0, "hi": 40.0, "count": 6164}, {"label": "40-45", "lo": 40.0, "hi": 45.0, "count": 5531}, {"label": "45-50", "lo": 45.0, "hi": 50.0, "count": 4774}, {"label": "50-55", "lo": 50.0, "hi": 55.0, "count": 3637}, {"label": "55-60", "lo": 55.0, "hi": 60.0, "count": 2627}, {"label": "60-65", "lo": 60.0, "hi": 65.0, "count": 1685}, {"label": "65-70", "lo": 65.0, "hi": 70.0, "count": 829}, {"label": "70-75", "lo": 70.0, "hi": 75.0, "count": 410}, {"label": "75-80", "lo": 75.0, "hi": 80.0, "count": 179}, {"label": "80-85", "lo": 80.0, "hi": 85.0, "count": 84}, {"label": "85-90", "lo": 85.0, "hi": 90.0, "count": 13}, {"label": "90-95", "lo": 90.0, "hi": 95.0, "count": 46}], "hoursHist": [{"label": "0-10", "lo": 0.0, "hi": 10.0, "count": 445}, {"label": "10-20", "lo": 10.0, "hi": 20.0, "count": 1555}, {"label": "20-30", "lo": 20.0, "hi": 30.0, "count": 3068}, {"label": "30-40", "lo": 30.0, "hi": 40.0, "count": 5019}, {"label": "40-50", "lo": 40.0, "hi": 50.0, "count": 25840}, {"label": "50-60", "lo": 50.0, "hi": 60.0, "count": 5621}, {"label": "60-70", "lo": 60.0, "hi": 70.0, "count": 2541}, {"label": "70-80", "lo": 70.0, "hi": 80.0, "count": 648}, {"label": "80-90", "lo": 80.0, "hi": 90.0, "count": 287}, {"label": "90-100", "lo": 90.0, "hi": 100.0, "count": 198}], "sexIncome": [{"group": "Female", "highEarners": 1669, "total": 14695}, {"group": "Male", "highEarners": 9539, "total": 30527}], "raceIncome": [{"group": "Amer-Indian-Eskimo", "highEarners": 53, "total": 435}, {"group": "Asian-Pac-Islander", "highEarners": 369, "total": 1303}, {"group": "Black", "highEarners": 534, "total": 4228}, {"group": "Other", "highEarners": 45, "total": 353}, {"group": "White", "highEarners": 10207, "total": 38903}]};
+
+const state = { epsilon: 1.0, mechanism: 'laplace', delta: 0.00001 };
+
+function laplaceSample(scale){
+  const u = Math.random() - 0.5;
+  return -scale * Math.sign(u) * Math.log(1 - 2*Math.abs(u));
+}
+function gaussianSample(sigma){
+  let u1 = Math.random(), u2 = Math.random();
+  const z = Math.sqrt(-2*Math.log(u1)) * Math.cos(2*Math.PI*u2);
+  return z * sigma;
+}
+function noise(sensitivity){
+  if(state.mechanism === 'laplace'){
+    return laplaceSample(sensitivity / state.epsilon);
+  } else {
+    const sigma = sensitivity * Math.sqrt(2*Math.log(1.25/state.delta)) / state.epsilon;
+    return gaussianSample(sigma);
+  }
+}
+function expectedAbsError(sensitivity, eps, mechanism, delta){
+  if(mechanism === 'laplace'){
+    return sensitivity / eps;
+  } else {
+    const sigma = sensitivity * Math.sqrt(2*Math.log(1.25/delta)) / eps;
+    return sigma * Math.sqrt(2/Math.PI);
+  }
+}
+
+const QUERIES = [
+  { id:'countHigh', label:'Count: number of people earning >$50K/yr', type:'count',
+    trueVal: DATA.highEarnerCount, sensitivity: 1, fmt: v => Math.round(v).toLocaleString() },
+  { id:'meanAge', label:'Mean: average age', type:'mean',
+    trueVal: DATA.meanAge, sensitivity: (DATA.maxAge-DATA.minAge)/DATA.n, fmt: v => v.toFixed(2) + ' yrs' },
+  { id:'meanHours', label:'Mean: average hours worked per week', type:'mean',
+    trueVal: DATA.meanHours, sensitivity: (DATA.maxHours-DATA.minHours)/DATA.n, fmt: v => v.toFixed(2) + ' hrs' },
+  { id:'countFemaleHigh', label:'Count: high earners who are female', type:'count',
+    trueVal: DATA.sexIncome[0].highEarners, sensitivity: 1, fmt: v => Math.round(v).toLocaleString() },
+  { id:'countWhiteHigh', label:'Count: high earners who are White', type:'count',
+    trueVal: DATA.raceIncome[4].highEarners, sensitivity: 1, fmt: v => Math.round(v).toLocaleString() },
+];
+
+const qPicker = d3.select('#queryPicker');
+qPicker.selectAll('option').data(QUERIES).join('option').attr('value', d=>d.id).text(d=>d.label);
+
+const tPicker = d3.select('#tradeoffPicker');
+tPicker.selectAll('option').data(QUERIES).join('option').attr('value', d=>d.id).text(d=>d.label);
+
+function regimeFor(eps){
+  if(eps <= 0.15) return {c:'strong', l:'strong privacy'};
+  if(eps <= 1.5) return {c:'moderate', l:'moderate privacy'};
+  if(eps <= 5) return {c:'weak', l:'weak privacy'};
+  return {c:'minimal', l:'minimal privacy'};
+}
+
+function updateDialReadout(){
+  d3.select('#epsReadout').text(state.epsilon < 1 ? state.epsilon.toFixed(2) : state.epsilon.toFixed(state.epsilon < 10 ? 1 : 0));
+  const r = regimeFor(state.epsilon);
+  const tag = d3.select('#regimeTag').attr('class', 'regime '+r.c).text(r.l);
+}
+
+function renderExplorer(){
+  const q = QUERIES.find(d=>d.id === qPicker.property('value'));
+  const noisyVal = q.trueVal + noise(q.sensitivity);
+  d3.select('#trueVal').text(q.fmt(q.trueVal));
+  d3.select('#noisyVal').text(q.fmt(noisyVal));
+  const absErr = Math.abs(noisyVal - q.trueVal);
+  const relErr = (absErr / Math.abs(q.trueVal) * 100).toFixed(2);
+  d3.select('#errLine').html(`Absolute error this draw: <b>${absErr.toFixed(3)}</b> &middot; relative error: <b>${relErr}%</b> &middot; expected (average) absolute error at &epsilon;=${state.epsilon.toFixed(2)}: <b>${expectedAbsError(q.sensitivity, state.epsilon, state.mechanism, state.delta).toFixed(3)}</b>`);
+  renderDotplot(q);
+}
+
+function renderDotplot(q){
+  const container = d3.select('#dotplot');
+  container.selectAll('*').remove();
+  const w = 860, h = 130, margin = {top:14, right:24, bottom:28, left:24};
+  const svg = container.append('svg').attr('width','100%').attr('viewBox', `0 0 ${w} ${h}`);
+  const draws = d3.range(200).map(()=> q.trueVal + noise(q.sensitivity));
+  const ext = d3.extent(draws.concat([q.trueVal]));
+  const pad = (ext[1]-ext[0])*0.1 || 1;
+  const x = d3.scaleLinear().domain([ext[0]-pad, ext[1]+pad]).range([margin.left, w-margin.right]);
+  svg.append('g').attr('transform',`translate(0,${h-margin.bottom})`)
+    .attr('class','axis').call(d3.axisBottom(x).ticks(6).tickFormat(d3.format('.3~s')));
+  const bins = d3.bin().domain(x.domain()).thresholds(40)(draws);
+  const y = d3.scaleLinear().domain([0, d3.max(bins,d=>d.length)||1]).range([h-margin.bottom, margin.top]);
+  svg.selectAll('rect').data(bins).join('rect')
+    .attr('x', d=>x(d.x0)+1).attr('width', d=>Math.max(1,x(d.x1)-x(d.x0)-1))
+    .attr('y', d=>y(d.length)).attr('height', d=>y(0)-y(d.length))
+    .attr('fill', 'var(--noise)').attr('opacity', 0.75);
+  svg.append('line').attr('x1', x(q.trueVal)).attr('x2', x(q.trueVal))
+    .attr('y1', margin.top).attr('y2', h-margin.bottom)
+    .attr('stroke', 'var(--signal)').attr('stroke-width', 2);
+  svg.append('text').attr('x', x(q.trueVal)).attr('y', margin.top-2)
+    .attr('text-anchor','middle').attr('fill','var(--signal)').attr('font-family','var(--mono)').attr('font-size',10).text('true');
+}
+
+function renderHistogram(){
+  const kind = d3.select('#histPicker').property('value');
+  const hist = kind === 'age' ? DATA.ageHist : DATA.hoursHist;
+  const container = d3.select('#histchart');
+  container.selectAll('*').remove();
+  const w = 860, h = 320, margin = {top:16, right:16, bottom:40, left:52};
+  const svg = container.append('svg').attr('width','100%').attr('viewBox', `0 0 ${w} ${h}`);
+  const noisy = hist.map(d => ({...d, noisyCount: Math.max(0, d.count + noise(1))}));
+  const x0 = d3.scaleBand().domain(hist.map(d=>d.label)).range([margin.left, w-margin.right]).padding(0.25);
+  const x1 = d3.scaleBand().domain(['true','noisy']).range([0, x0.bandwidth()]).padding(0.1);
+  const y = d3.scaleLinear().domain([0, d3.max(noisy, d=>Math.max(d.count,d.noisyCount))*1.1]).range([h-margin.bottom, margin.top]);
+  svg.append('g').attr('transform',`translate(0,${h-margin.bottom})`).attr('class','axis')
+    .call(d3.axisBottom(x0)).selectAll('text').attr('transform','rotate(-35)').style('text-anchor','end');
+  svg.append('g').attr('transform',`translate(${margin.left},0)`).attr('class','axis').call(d3.axisLeft(y).ticks(6));
+  d3.range(6).forEach(i=>{
+    const yy = y.ticks(6)[i];
+    if(yy!==undefined) svg.append('line').attr('class','gridline').attr('x1',margin.left).attr('x2',w-margin.right).attr('y1',y(yy)).attr('y2',y(yy));
+  });
+  const groups = svg.selectAll('.grp').data(noisy).join('g').attr('transform', d=>`translate(${x0(d.label)},0)`);
+  groups.append('rect').attr('x', x1('true')).attr('width', x1.bandwidth())
+    .attr('y', d=>y(d.count)).attr('height', d=>y(0)-y(d.count)).attr('fill','var(--signal)');
+  groups.append('rect').attr('x', x1('noisy')).attr('width', x1.bandwidth())
+    .attr('y', d=>y(d.noisyCount)).attr('height', d=>y(0)-y(d.noisyCount)).attr('fill','var(--noise)');
+}
+
+function renderTradeoff(){
+  const q = QUERIES.find(d=>d.id === tPicker.property('value'));
+  const container = d3.select('#tradeoffchart');
+  container.selectAll('*').remove();
+  const w = 860, h = 340, margin = {top:16, right:20, bottom:40, left:56};
+  const svg = container.append('svg').attr('width','100%').attr('viewBox', `0 0 ${w} ${h}`);
+  const epsRange = d3.range(-2, 1.01, 0.05).map(e => Math.pow(10,e));
+  const analytic = epsRange.map(e => ({eps:e, err: expectedAbsError(q.sensitivity, e, state.mechanism, state.delta)}));
+  const x = d3.scaleLog().domain([0.01, 10]).range([margin.left, w-margin.right]);
+  const y = d3.scaleLog().domain(d3.extent(analytic, d=>d.err)).nice().range([h-margin.bottom, margin.top]);
+  svg.append('g').attr('transform',`translate(0,${h-margin.bottom})`).attr('class','axis')
+    .call(d3.axisBottom(x).ticks(5, '~s'));
+  svg.append('g').attr('transform',`translate(${margin.left},0)`).attr('class','axis')
+    .call(d3.axisLeft(y).ticks(5, '~s'));
+  const line = d3.line().x(d=>x(d.eps)).y(d=>y(d.err));
+  svg.append('path').datum(analytic).attr('d', line).attr('fill','none').attr('stroke','var(--signal)').attr('stroke-width', 2);
+  const simEps = d3.range(-2, 1.01, 0.25).map(e=>Math.pow(10,e));
+  const sim = simEps.map(e=>{
+    const draws = d3.range(100).map(()=> {
+      if(state.mechanism==='laplace') return Math.abs(laplaceSample(q.sensitivity/e));
+      const sigma = q.sensitivity*Math.sqrt(2*Math.log(1.25/state.delta))/e;
+      return Math.abs(gaussianSample(sigma));
+    });
+    return {eps:e, err: d3.mean(draws)};
+  });
+  svg.selectAll('.simdot').data(sim).join('circle').attr('class','simdot')
+    .attr('cx', d=>x(d.eps)).attr('cy', d=>y(Math.max(d.err, y.domain()[0]))).attr('r', 3.5)
+    .attr('fill','var(--noise)').attr('stroke', 'var(--bg)').attr('stroke-width', 1);
+  const curEps = Math.min(10, Math.max(0.01, state.epsilon));
+  const curErr = expectedAbsError(q.sensitivity, curEps, state.mechanism, state.delta);
+  svg.append('line').attr('x1', x(curEps)).attr('x2', x(curEps)).attr('y1', margin.top).attr('y2', h-margin.bottom)
+    .attr('stroke', 'var(--text)').attr('stroke-dasharray','3,3').attr('stroke-width', 1);
+  svg.append('circle').attr('cx', x(curEps)).attr('cy', y(Math.max(curErr,y.domain()[0]))).attr('r', 6)
+    .attr('fill', 'none').attr('stroke', 'var(--text)').attr('stroke-width', 2);
+  svg.append('text').attr('x', x(curEps)+8).attr('y', margin.top+10).attr('fill','var(--text)')
+    .attr('font-family','var(--mono)').attr('font-size', 11).text('your dial');
+}
+
+function renderAll(){
+  updateDialReadout();
+  renderExplorer();
+  renderHistogram();
+  renderTradeoff();
+}
+
+d3.select('#epsSlider').on('input', function(){
+  state.epsilon = Math.pow(10, +this.value);
+  renderAll();
+});
+d3.select('#btnLaplace').on('click', function(){
+  state.mechanism = 'laplace';
+  d3.select('#btnLaplace').classed('active', true);
+  d3.select('#btnGaussian').classed('active', false);
+  d3.select('#deltaRow').style('display','none');
+  renderAll();
+});
+d3.select('#btnGaussian').on('click', function(){
+  state.mechanism = 'gaussian';
+  d3.select('#btnGaussian').classed('active', true);
+  d3.select('#btnLaplace').classed('active', false);
+  d3.select('#deltaRow').style('display','flex');
+  renderAll();
+});
+d3.select('#deltaInput').on('change', function(){
+  state.delta = Math.max(1e-8, +this.value || 0.00001);
+  renderAll();
+});
+d3.select('#resampleBtn').on('click', renderAll);
+d3.select('#queryPicker').on('change', renderExplorer);
+d3.select('#histPicker').on('change', renderHistogram);
+d3.select('#tradeoffPicker').on('change', renderTradeoff);
+
+document.querySelectorAll('.tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-'+btn.dataset.tab).classList.add('active');
+  });
+});
+
+renderAll();
+</script>
+</body>
+</html>
