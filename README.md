@@ -4,6 +4,10 @@ An interactive dashboard that shows how differential privacy noise affects
 real census data, and visualizes the privacy-utility tradeoff live. Built on
 the real **UCI Adult (Census Income)** dataset (45,222 records after
 cleaning), not a toy example.
+<img width="959" height="522" alt="1" src="https://github.com/user-attachments/assets/0fb28c19-c32e-4b55-93c7-125ba3c95700" />
+<img width="959" height="529" alt="2" src="https://github.com/user-attachments/assets/58bab60a-33e6-4176-acb7-b351fffd1f62" />
+<img width="959" height="497" alt="3" src="https://github.com/user-attachments/assets/85dab8be-cb25-495c-9c4f-cb17d0127b87" />
+
 
 **Stack:** Python + [OpenDP](https://opendp.org) backend (FastAPI), React +
 D3.js frontend.
